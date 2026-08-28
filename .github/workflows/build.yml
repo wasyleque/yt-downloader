@@ -1,1 +1,71 @@
-git tag v1.0 && git push --tags
+name: Build YT-Downloader
+
+on:
+  push:
+    tags:
+      - 'v*' # Uruchamia workflow po dodaniu tagu np. v1.0
+  workflow_dispatch: # Umożliwia również ręczne uruchomienie w zakładce Actions
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk xvfb
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build with PyInstaller (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          # Sprawdzenie czy istnieje ffmpeg.exe i budowanie
+          if (Test-Path "ffmpeg.exe") {
+            pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" --add-binary "ffmpeg.exe;." main.py
+          } else {
+            pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" main.py
+          }
+
+      - name: Build with PyInstaller (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          # Uruchomienie wewnątrz xvfb zapobiega błędom tkinter/customtkinter podczas analizy kodu przez PyInstaller
+          if [ -f "ffmpeg" ]; then
+            xvfb-run pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" --add-binary "ffmpeg:." main.py
+          fi
+          if [ ! -f "ffmpeg" ]; then
+            xvfb-run pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" main.py
+          fi
+
+      - name: Upload Artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: YT-Downloader-Windows
+          path: dist/YT-Downloader.exe
+
+      - name: Upload Artifacts (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: YT-Downloader-Linux
+          path: dist/YT-Downloader
