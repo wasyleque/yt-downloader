@@ -1,0 +1,50 @@
+name: Build YT Downloader
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          cp "$(which ffmpeg)" ./ffmpeg
+
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install ffmpeg -y
+          $ffmpegPath = (Get-Command ffmpeg).Source
+          Copy-Item $ffmpegPath -Destination .\ffmpeg.exe
+
+      - name: Build with PyInstaller (Linux)
+        if: runner.os == 'Linux'
+        run: pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" --add-binary "ffmpeg:." main.py
+
+      - name: Build with PyInstaller (Windows)
+        if: runner.os == 'Windows'
+        run: pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" --add-binary "ffmpeg.exe;." main.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yt-downloader-${{ runner.os }}
+          path: dist/*
