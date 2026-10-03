@@ -29,11 +29,15 @@ Pick your language from the dropdown at the top of the window. The non-English
 translations were generated with a local LLM and lightly reviewed — fixes and new
 languages via pull request are welcome (see [`translations.py`](translations.py)).
 
-## Requirements
+## ffmpeg
 
-- Python 3.11+
-- [`ffmpeg`](https://ffmpeg.org/) available on your `PATH` (required to merge
-  video+audio and to extract MP3). Pre-built releases bundle `ffmpeg`.
+`ffmpeg` is required to merge separate video+audio streams and to extract MP3.
+
+- **Running from source:** make sure `ffmpeg` is installed and on your `PATH`.
+- **Pre-built binary:** place an `ffmpeg` executable next to the app
+  (`ffmpeg.exe` on Windows, `ffmpeg` on Linux). Windows builds are available from
+  <https://www.gyan.dev/ffmpeg/builds/>; on Linux install it from your package
+  manager (e.g. `sudo apt install ffmpeg`).
 
 ## Run from source
 
@@ -47,8 +51,9 @@ python main.py
 ## Download a pre-built binary
 
 Grab the latest `.exe` (Windows) or Linux binary from the
-[Releases / Actions artifacts](https://github.com/wasyleque/yt-downloader/actions).
-Binaries are built automatically by GitHub Actions on every `v*` tag.
+[GitHub Actions artifacts](https://github.com/wasyleque/yt-downloader/actions).
+Binaries are built automatically on every `v*` tag (see below). Remember to keep an
+`ffmpeg` executable next to the downloaded app.
 
 ## Build it yourself
 
