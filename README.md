@@ -33,11 +33,12 @@ languages via pull request are welcome (see [`translations.py`](translations.py)
 
 `ffmpeg` is required to merge separate video+audio streams and to extract MP3.
 
+- **Pre-built binary:** nothing to do — `ffmpeg` is bundled **inside** the
+  executable, so the download is fully portable and needs no installation.
 - **Running from source:** make sure `ffmpeg` is installed and on your `PATH`.
-- **Pre-built binary:** place an `ffmpeg` executable next to the app
-  (`ffmpeg.exe` on Windows, `ffmpeg` on Linux). Windows builds are available from
-  <https://www.gyan.dev/ffmpeg/builds/>; on Linux install it from your package
-  manager (e.g. `sudo apt install ffmpeg`).
+
+You can still override the bundled copy by placing your own `ffmpeg`
+(`ffmpeg.exe` on Windows) next to the executable.
 
 ## Run from source
 
@@ -52,8 +53,8 @@ python main.py
 
 Grab the latest `.exe` (Windows) or Linux binary from the
 [GitHub Actions artifacts](https://github.com/wasyleque/yt-downloader/actions).
-Binaries are built automatically on every `v*` tag (see below). Remember to keep an
-`ffmpeg` executable next to the downloaded app.
+Binaries are built automatically on every `v*` tag (see below) and are fully
+portable — `ffmpeg` is already included, so just download and run.
 
 ## Build it yourself
 
@@ -63,6 +64,9 @@ Single-file executables are produced with PyInstaller:
 ./build_linux.sh          # Linux
 build_windows.bat         # Windows
 ```
+
+Both scripts automatically download a static `ffmpeg` (if not already present)
+and bundle it into the executable, so the local build is portable too.
 
 `.github/workflows/build.yml` builds both the Windows `.exe` and the Linux binary
 in the cloud whenever a tag like `v1.1.0` is pushed (or via manual dispatch), so

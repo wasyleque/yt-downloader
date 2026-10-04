@@ -42,9 +42,25 @@ ctk.set_default_color_theme("blue")
 
 
 def ffmpeg_location() -> str | None:
-    """When built with PyInstaller, ffmpeg sits next to the executable."""
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
+    """Locate a bundled ffmpeg when running as a PyInstaller build.
+
+    With ``--onefile`` a binary added via ``--add-binary`` is unpacked into the
+    temporary extraction dir (``sys._MEIPASS``); we also accept an ffmpeg placed
+    next to the executable. Returns ``None`` when nothing is bundled so yt-dlp
+    falls back to an ffmpeg found on the system ``PATH``.
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+
+    candidates: list[str] = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(meipass)
+    candidates.append(os.path.dirname(sys.executable))
+
+    for base in candidates:
+        if any(os.path.exists(os.path.join(base, name)) for name in ("ffmpeg", "ffmpeg.exe")):
+            return base
     return None
 
 
