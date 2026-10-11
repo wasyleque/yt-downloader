@@ -81,7 +81,7 @@ you can ship for both platforms without owning both systems.
 | --- | --- |
 | `main.py` | The whole GUI application |
 | `translations.py` | UI strings for every supported language |
-| `requirements.txt` | customtkinter, yt-dlp, pyinstaller |
+| `requirements.txt` | customtkinter, yt-dlp, curl_cffi, pyinstaller |
 | `build_linux.sh` / `build_windows.bat` | Local one-file build scripts |
 | `.github/workflows/build.yml` | CI that builds Windows + Linux binaries on tags |
 

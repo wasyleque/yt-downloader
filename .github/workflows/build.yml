@@ -61,9 +61,9 @@ jobs:
         run: |
           # Sprawdzenie czy istnieje ffmpeg.exe i budowanie
           if (Test-Path "ffmpeg.exe") {
-            pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" --add-binary "ffmpeg.exe;." main.py
+            pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" --collect-all curl_cffi --add-binary "ffmpeg.exe;." main.py
           } else {
-            pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" main.py
+            pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" --collect-all curl_cffi main.py
           }
 
       - name: Build with PyInstaller (Linux)
@@ -71,10 +71,10 @@ jobs:
         run: |
           # Uruchomienie wewnątrz xvfb zapobiega błędom tkinter/customtkinter podczas analizy kodu przez PyInstaller
           if [ -f "ffmpeg" ]; then
-            xvfb-run pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" --add-binary "ffmpeg:." main.py
+            xvfb-run pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" --collect-all curl_cffi --add-binary "ffmpeg:." main.py
           fi
           if [ ! -f "ffmpeg" ]; then
-            xvfb-run pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" main.py
+            xvfb-run pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" --collect-all curl_cffi main.py
           fi
 
       - name: Upload Artifacts (Windows)

@@ -23,7 +23,7 @@ if exist ffmpeg.exe (
     echo Uwaga: brak pliku ffmpeg.exe - aplikacja bedzie wymagac ffmpeg dostepnego w PATH.
 )
 
-pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" %ADD_BINARY% main.py
+pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" --collect-all curl_cffi %ADD_BINARY% main.py
 
 echo Gotowe. Portable plik exe: dist\YT-Downloader.exe
 pause

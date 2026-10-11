@@ -343,7 +343,7 @@ class DownloaderApp(ctk.CTk):
         )
         thread.start()
 
-    def _download_worker(self, url, dest, is_audio, height, no_playlist):
+    def _build_ydl_opts(self, dest, is_audio, height, no_playlist, impersonate):
         ydl_opts = {
             "outtmpl": os.path.join(dest, "%(title)s.%(ext)s"),
             "noplaylist": no_playlist,
@@ -354,6 +354,17 @@ class DownloaderApp(ctk.CTk):
             # item fails (geo-blocked, removed, etc.) instead of aborting the batch.
             "ignoreerrors": not no_playlist,
         }
+
+        if impersonate:
+            # Impersonate a real browser's TLS/HTTP fingerprint via curl_cffi.
+            # Cloudflare-protected sites (e.g. Pornhub) return HTTP 403 for a
+            # plain client; impersonation gets past that.
+            try:
+                from yt_dlp.networking.impersonate import ImpersonateTarget
+
+                ydl_opts["impersonate"] = ImpersonateTarget(client="chrome")
+            except Exception:  # noqa: BLE001 - impersonation is best-effort
+                pass
 
         ffmpeg_dir = ffmpeg_location()
         if ffmpeg_dir:
@@ -371,12 +382,32 @@ class DownloaderApp(ctk.CTk):
                 ydl_opts["format"] = "bestvideo+bestaudio/best"
             ydl_opts["merge_output_format"] = "mp4"
 
+        return ydl_opts
+
+    def _extract(self, url, opts):
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            return ydl.extract_info(url, download=True)
+
+    def _download_worker(self, url, dest, is_audio, height, no_playlist):
+        # Known Cloudflare-fronted sites need browser impersonation from the
+        # start; for anything else, try a plain request first and only fall back
+        # to impersonation if it fails (e.g. HTTP 403).
+        impersonate = "pornhub" in url.lower()
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+            info = self._extract(
+                url, self._build_ydl_opts(dest, is_audio, height, no_playlist, impersonate)
+            )
         except Exception as exc:  # noqa: BLE001
-            self.event_queue.put(("error", str(exc)))
-            return
+            if self.cancel_requested or impersonate:
+                self.event_queue.put(("error", str(exc)))
+                return
+            try:
+                info = self._extract(
+                    url, self._build_ydl_opts(dest, is_audio, height, no_playlist, True)
+                )
+            except Exception as exc2:  # noqa: BLE001
+                self.event_queue.put(("error", str(exc2)))
+                return
 
         if not info:
             # ignoreerrors can yield None / empty entries for a fully failed list

@@ -26,6 +26,7 @@ else
   echo "Uwaga: brak pliku 'ffmpeg' - aplikacja bedzie wymagac ffmpeg zainstalowanego w systemie (PATH)."
 fi
 
-pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" "${ADD_BINARY_ARGS[@]}" main.py
+pyinstaller --noconfirm --onefile --windowed --name "YT-Downloader" \
+  --collect-all curl_cffi "${ADD_BINARY_ARGS[@]}" main.py
 
 echo "Gotowe. Portable plik wykonywalny: dist/YT-Downloader"
