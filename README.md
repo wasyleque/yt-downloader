@@ -1,23 +1,26 @@
 # YT Downloader
 
-A simple, cross-platform desktop app for downloading video and audio from YouTube,
+A simple, cross-platform desktop app for downloading video and audio from
+YouTube, Pornhub and [any other site supported by yt-dlp](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md),
 built on [yt-dlp](https://github.com/yt-dlp/yt-dlp) with a clean
 [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) GUI.
 
-> Download recordings from YouTube to watch without ads.
+> Download recordings to watch offline, without ads.
 
 ## Features
 
-- Paste a single video **or** a whole playlist link
+- Paste a **single video** link, or a **channel / model / playlist** link to
+  download the whole list — e.g. a YouTube playlist or a Pornhub model page such
+  as `pornhub.com/model/<name>`
 - **Video** or **audio-only (MP3)** mode
 - Quality selector: 4K / 1440p / 1080p / 720p / 480p / 360p / best available
-- "This video only" option to ignore a playlist embedded in the link
-- Choose the destination folder
+- "This video only" option to ignore a playlist/channel embedded in the link
+- Choose the destination folder, with a one-click "Show in folder" button
 - Live progress bar with speed and ETA; downloads run on a background thread so the
   UI never freezes
 - **Stop** button to cancel an in-progress download
-- Download history, stored at `~/.yt_downloader_gui/history.json`, with a
-  "Show in folder" button
+- When grabbing a whole list, a single broken/blocked item is skipped instead of
+  aborting the batch
 - **Multi-language UI** with an in-app language switcher — your choice is remembered
 
 ## Supported languages

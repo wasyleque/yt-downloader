@@ -1,4 +1,6 @@
-"""YT Downloader GUI - download video/audio from YouTube via yt-dlp."""
+"""YT Downloader GUI - download video/audio from YouTube, Pornhub and any other
+site supported by yt-dlp. Paste a single video link or a channel/model/playlist
+link to grab the whole list."""
 
 import json
 import os
@@ -7,7 +9,6 @@ import subprocess
 import sys
 import threading
 import webbrowser
-from datetime import datetime
 from pathlib import Path
 
 import customtkinter as ctk
@@ -18,7 +19,6 @@ import translations
 
 APP_DIR = Path.home() / ".yt_downloader_gui"
 APP_DIR.mkdir(exist_ok=True)
-HISTORY_FILE = APP_DIR / "history.json"
 CONFIG_FILE = APP_DIR / "config.json"
 
 GITHUB_URL = "https://github.com/wasyleque/yt-downloader"
@@ -69,19 +69,6 @@ def default_download_dir() -> str:
     return str(videos if videos.exists() else Path.home() / "Downloads")
 
 
-def load_history() -> list[dict]:
-    if HISTORY_FILE.exists():
-        try:
-            return json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return []
-    return []
-
-
-def save_history(entries: list[dict]) -> None:
-    HISTORY_FILE.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
 def load_config() -> dict:
     if CONFIG_FILE.exists():
         try:
@@ -112,16 +99,20 @@ class DownloaderApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("YT Downloader")
-        self.geometry("760x680")
-        self.minsize(680, 600)
+        self.geometry("760x460")
+        self.minsize(680, 420)
 
         self.config_data = load_config()
+        # History was removed; clean up any leftover file from older versions.
+        try:
+            (APP_DIR / "history.json").unlink(missing_ok=True)
+        except OSError:
+            pass
         available = translations.available_languages()
         lang = self.config_data.get("language", translations.DEFAULT_LANG)
         self.lang = lang if lang in available else translations.DEFAULT_LANG
 
         self.event_queue: queue.Queue = queue.Queue()
-        self.history: list[dict] = load_history()
         self.is_downloading = False
         self.cancel_requested = False
 
@@ -134,7 +125,6 @@ class DownloaderApp(ctk.CTk):
         self.single_video = False
 
         self._build_ui()
-        self._refresh_history_view()
         self.after(100, self._poll_queue)
 
     # ---------- i18n ----------
@@ -157,7 +147,6 @@ class DownloaderApp(ctk.CTk):
         for widget in self.winfo_children():
             widget.destroy()
         self._build_ui()
-        self._refresh_history_view()
 
     def _sync_state(self):
         """Pull current widget values into instance state before a rebuild."""
@@ -182,7 +171,7 @@ class DownloaderApp(ctk.CTk):
     def _build_ui(self):
         pad = {"padx": 16, "pady": (12, 0)}
 
-        # Top bar: language picker (right aligned)
+        # Top bar: language picker (left aligned)
         top_bar = ctk.CTkFrame(self, fg_color="transparent")
         top_bar.pack(fill="x", padx=16, pady=(12, 0))
         available = translations.available_languages()
@@ -201,7 +190,10 @@ class DownloaderApp(ctk.CTk):
 
         # URL
         ctk.CTkLabel(self, text=self.t("url_label")).pack(anchor="w", **pad)
-        self.url_entry = ctk.CTkEntry(self, placeholder_text="https://www.youtube.com/watch?v=...")
+        self.url_entry = ctk.CTkEntry(
+            self,
+            placeholder_text="youtube.com/watch?v=...   ·   pornhub.com/model/...   ·   .../view_video.php?viewkey=...",
+        )
         self.url_entry.pack(fill="x", padx=16, pady=(4, 0))
         if self.url_value:
             self.url_entry.insert(0, self.url_value)
@@ -250,6 +242,10 @@ class DownloaderApp(ctk.CTk):
         ctk.CTkButton(
             folder_frame, text=self.t("choose_folder"), width=100, command=self._choose_folder
         ).grid(row=0, column=1, padx=(8, 0))
+        ctk.CTkButton(
+            folder_frame, text=self.t("show_in_folder"), width=120,
+            command=lambda: open_in_file_manager(self.folder_var.get()),
+        ).grid(row=0, column=2, padx=(8, 0))
 
         # Download / Stop
         button_text = self.t("stop") if self.is_downloading else self.t("download")
@@ -264,11 +260,6 @@ class DownloaderApp(ctk.CTk):
         self.progress_bar.pack(fill="x")
         self.status_label = ctk.CTkLabel(self, text=self.t("status_ready"), anchor="w")
         self.status_label.pack(fill="x", padx=16, pady=(4, 12))
-
-        # History
-        ctk.CTkLabel(self, text=self.t("history_label")).pack(anchor="w", padx=16)
-        self.history_box = ctk.CTkScrollableFrame(self, height=200)
-        self.history_box.pack(fill="both", expand=True, padx=16, pady=(4, 16))
 
     def _build_footer(self):
         footer = ctk.CTkFrame(self, fg_color="transparent")
@@ -318,31 +309,6 @@ class DownloaderApp(ctk.CTk):
         if chosen:
             self.folder_var.set(chosen)
 
-    # ---------- History ----------
-
-    def _refresh_history_view(self):
-        for widget in self.history_box.winfo_children():
-            widget.destroy()
-
-        if not self.history:
-            ctk.CTkLabel(self.history_box, text=self.t("history_empty")).pack(anchor="w", pady=4)
-            return
-
-        for entry in reversed(self.history[-100:]):
-            row = ctk.CTkFrame(self.history_box, fg_color="transparent")
-            row.pack(fill="x", pady=2)
-            label_text = f"{entry['time']}  -  {entry['title']}"
-            ctk.CTkLabel(row, text=label_text, anchor="w").pack(side="left", fill="x", expand=True)
-            ctk.CTkButton(
-                row, text=self.t("show_in_folder"), width=130,
-                command=lambda p=entry["path"]: open_in_file_manager(p),
-            ).pack(side="right")
-
-    def _add_history_entry(self, title: str, path: str):
-        self.history.append({"title": title, "path": path, "time": datetime.now().strftime("%Y-%m-%d %H:%M")})
-        save_history(self.history)
-        self._refresh_history_view()
-
     # ---------- Download ----------
 
     def _start_download(self):
@@ -384,6 +350,9 @@ class DownloaderApp(ctk.CTk):
             "progress_hooks": [self._progress_hook],
             "quiet": True,
             "no_warnings": True,
+            # When pulling a whole channel/model/playlist, keep going if a single
+            # item fails (geo-blocked, removed, etc.) instead of aborting the batch.
+            "ignoreerrors": not no_playlist,
         }
 
         ffmpeg_dir = ffmpeg_location()
@@ -407,6 +376,11 @@ class DownloaderApp(ctk.CTk):
                 info = ydl.extract_info(url, download=True)
         except Exception as exc:  # noqa: BLE001
             self.event_queue.put(("error", str(exc)))
+            return
+
+        if not info:
+            # ignoreerrors can yield None / empty entries for a fully failed list
+            self.event_queue.put(("finished", None))
             return
 
         entries = info.get("entries") if info.get("_type") == "playlist" else [info]
@@ -451,8 +425,8 @@ class DownloaderApp(ctk.CTk):
                     self.status_label.configure(text=event[1])
 
                 elif kind == "done_item":
-                    _, title, path = event
-                    self._add_history_entry(title, path)
+                    _, title, _path = event
+                    self.status_label.configure(text=f"✓ {title}")
 
                 elif kind == "finished":
                     self.progress_bar.set(1)
