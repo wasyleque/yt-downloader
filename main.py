@@ -143,10 +143,11 @@ class DownloaderApp(ctk.CTk):
         # UI state kept independent of the (translated) widget labels so it
         # survives a language switch (which rebuilds every widget).
         self.url_value = ""
-        self.folder_value = default_download_dir()
+        self.folder_value = self.config_data.get("download_dir") or default_download_dir()
         self.mode_is_audio = False
         self.quality_height: int | None = None
-        self.single_video = False
+        # Default to grabbing just the linked video, not a whole playlist/channel.
+        self.single_video = True
 
         self._build_ui()
         self.after(100, self._poll_queue)
@@ -332,6 +333,13 @@ class DownloaderApp(ctk.CTk):
         chosen = filedialog.askdirectory(initialdir=self.folder_var.get())
         if chosen:
             self.folder_var.set(chosen)
+            self._remember_folder(chosen)
+
+    def _remember_folder(self, folder: str):
+        """Persist the download folder so it is restored next launch."""
+        self.folder_value = folder
+        self.config_data["download_dir"] = folder
+        save_config(self.config_data)
 
     # ---------- Download ----------
 
@@ -346,6 +354,7 @@ class DownloaderApp(ctk.CTk):
 
         dest = Path(self.folder_var.get())
         dest.mkdir(parents=True, exist_ok=True)
+        self._remember_folder(str(dest))
 
         is_audio = self.mode_is_audio
         height = self.quality_height
