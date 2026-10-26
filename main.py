@@ -1,6 +1,9 @@
-"""YT Downloader GUI - download video/audio from YouTube, Pornhub and any other
-site supported by yt-dlp. Paste a single video link or a channel/model/playlist
-link to grab the whole list."""
+"""YT Downloader GUI - download video/audio from YouTube and the many other
+sites supported by yt-dlp. Paste a single video link, or a playlist/channel link
+to grab the whole list.
+
+Supported sites: https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md
+"""
 
 import json
 import os
@@ -217,7 +220,7 @@ class DownloaderApp(ctk.CTk):
         ctk.CTkLabel(self, text=self.t("url_label")).pack(anchor="w", **pad)
         self.url_entry = ctk.CTkEntry(
             self,
-            placeholder_text="youtube.com/watch?v=...   ·   pornhub.com/model/...   ·   .../view_video.php?viewkey=...",
+            placeholder_text="https://www.youtube.com/watch?v=...   (video, playlist or channel link)",
         )
         self.url_entry.pack(fill="x", padx=16, pady=(4, 0))
         if self.url_value:
@@ -384,16 +387,16 @@ class DownloaderApp(ctk.CTk):
             "progress_hooks": [self._progress_hook],
             "quiet": True,
             "no_warnings": True,
-            # Keep going past a single failed item in a channel/model/playlist,
-            # but don't swallow everything: "only_download" lets a bad item be
+            # Keep going past a single failed item in a playlist/channel, but
+            # don't swallow everything: "only_download" lets a bad item be
             # skipped while real setup errors still surface.
             "ignoreerrors": "only_download",
         }
 
         if impersonate:
             # Impersonate a real browser's TLS/HTTP fingerprint via curl_cffi.
-            # Cloudflare-protected sites (e.g. Pornhub) return HTTP 403 for a
-            # plain client; impersonation gets past that.
+            # Some Cloudflare-protected sites return HTTP 403 for a plain
+            # client; impersonation gets past that.
             try:
                 from yt_dlp.networking.impersonate import ImpersonateTarget
 
@@ -424,16 +427,15 @@ class DownloaderApp(ctk.CTk):
             return ydl.extract_info(url, download=True)
 
     def _download_worker(self, url, dest, is_audio, height, no_playlist):
-        # Known Cloudflare-fronted sites need browser impersonation from the
-        # start; for anything else, try a plain request first and only fall back
-        # to impersonation if it fails (e.g. HTTP 403).
-        impersonate = "pornhub" in url.lower()
+        # Try a plain request first. Some sites sit behind Cloudflare and reject
+        # it with HTTP 403 based on the TLS/HTTP fingerprint; on failure, retry
+        # once with browser impersonation (curl_cffi), which gets past that.
         try:
             info = self._extract(
-                url, self._build_ydl_opts(dest, is_audio, height, no_playlist, impersonate)
+                url, self._build_ydl_opts(dest, is_audio, height, no_playlist, False)
             )
         except Exception as exc:  # noqa: BLE001
-            if self.cancel_requested or impersonate:
+            if self.cancel_requested:
                 self.event_queue.put(("error", str(exc)))
                 return
             try:
