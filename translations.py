@@ -53,6 +53,11 @@ TRANSLATIONS = {
         "cancelled_exception": "Download interrupted by user.",
         "language_label": "Language:",
         "donate": "Donate via PayPal",
+        "error_no_output": (
+            "The download produced no file. The site may be unavailable, or (on "
+            "Windows) ffmpeg could not be used — try placing ffmpeg.exe in the "
+            "same folder as the app."
+        ),
     },
     "pl": {
         "url_label": "Link do filmu lub playlisty:",
@@ -82,6 +87,11 @@ TRANSLATIONS = {
         "cancelled_exception": "Pobieranie przerwane przez użytkownika.",
         "language_label": "Język:",
         "donate": "Wesprzyj przez PayPal",
+        "error_no_output": (
+            "Nie pobrano żadnego pliku. Serwis może być niedostępny albo (na "
+            "Windows) nie udało się użyć ffmpeg — spróbuj umieścić ffmpeg.exe w "
+            "tym samym folderze co aplikacja."
+        ),
     },
     "de": {
         "url_label": "Video- oder Playlist-URL:",

@@ -5,6 +5,7 @@ link to grab the whole list."""
 import json
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -42,25 +43,47 @@ ctk.set_default_color_theme("blue")
 
 
 def ffmpeg_location() -> str | None:
-    """Locate a bundled ffmpeg when running as a PyInstaller build.
+    """Return a directory containing a usable ffmpeg, or ``None`` for PATH.
 
-    With ``--onefile`` a binary added via ``--add-binary`` is unpacked into the
-    temporary extraction dir (``sys._MEIPASS``); we also accept an ffmpeg placed
-    next to the executable. Returns ``None`` when nothing is bundled so yt-dlp
-    falls back to an ffmpeg found on the system ``PATH``.
+    Only relevant for PyInstaller builds. Priority:
+
+    1. An ffmpeg placed next to the executable (user override / onedir build).
+    2. The ffmpeg bundled via ``--add-binary``. With ``--onefile`` PyInstaller
+       unpacks it into a fresh temporary dir (``sys._MEIPASS``) on every launch;
+       running it straight from there is unreliable on Windows (re-extracted each
+       time, and antivirus frequently blocks executing a binary from ``%TEMP%``).
+       So we copy it once to a stable per-user dir and point yt-dlp there.
+
+    When nothing is bundled, returns ``None`` so yt-dlp uses an ffmpeg on PATH.
     """
     if not getattr(sys, "frozen", False):
         return None
 
-    candidates: list[str] = []
+    names = ("ffmpeg.exe", "ffmpeg") if sys.platform.startswith("win") else ("ffmpeg", "ffmpeg.exe")
+
+    # 1) ffmpeg sitting next to the executable wins.
+    exe_dir = os.path.dirname(sys.executable)
+    if any(os.path.exists(os.path.join(exe_dir, n)) for n in names):
+        return exe_dir
+
+    # 2) ffmpeg bundled into the onefile archive: copy it once to a stable dir.
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
-        candidates.append(meipass)
-    candidates.append(os.path.dirname(sys.executable))
-
-    for base in candidates:
-        if any(os.path.exists(os.path.join(base, name)) for name in ("ffmpeg", "ffmpeg.exe")):
-            return base
+        for name in names:
+            bundled = os.path.join(meipass, name)
+            if not os.path.exists(bundled):
+                continue
+            try:
+                target_dir = APP_DIR / "bin"
+                target_dir.mkdir(parents=True, exist_ok=True)
+                target = target_dir / name
+                if not target.exists() or target.stat().st_size != os.path.getsize(bundled):
+                    shutil.copy2(bundled, target)
+                    if not sys.platform.startswith("win"):
+                        os.chmod(target, 0o755)
+                return str(target_dir)
+            except OSError:
+                return meipass  # best effort: use it in place
     return None
 
 
@@ -115,6 +138,7 @@ class DownloaderApp(ctk.CTk):
         self.event_queue: queue.Queue = queue.Queue()
         self.is_downloading = False
         self.cancel_requested = False
+        self.downloaded_any = False
 
         # UI state kept independent of the (translated) widget labels so it
         # survives a language switch (which rebuilds every widget).
@@ -329,6 +353,7 @@ class DownloaderApp(ctk.CTk):
 
         self.is_downloading = True
         self.cancel_requested = False
+        self.downloaded_any = False
 
         # Button acts as STOP while downloading
         self.download_button.configure(text=self.t("stop"), state="normal")
@@ -350,9 +375,10 @@ class DownloaderApp(ctk.CTk):
             "progress_hooks": [self._progress_hook],
             "quiet": True,
             "no_warnings": True,
-            # When pulling a whole channel/model/playlist, keep going if a single
-            # item fails (geo-blocked, removed, etc.) instead of aborting the batch.
-            "ignoreerrors": not no_playlist,
+            # Keep going past a single failed item in a channel/model/playlist,
+            # but don't swallow everything: "only_download" lets a bad item be
+            # skipped while real setup errors still surface.
+            "ignoreerrors": "only_download",
         }
 
         if impersonate:
@@ -409,12 +435,14 @@ class DownloaderApp(ctk.CTk):
                 self.event_queue.put(("error", str(exc2)))
                 return
 
-        if not info:
-            # ignoreerrors can yield None / empty entries for a fully failed list
-            self.event_queue.put(("finished", None))
+        if not self.downloaded_any and not self.cancel_requested:
+            # Nothing was actually saved: e.g. a format needs merging and ffmpeg
+            # could not be used, or every item in the list failed. Don't report
+            # success silently — surface a clear, actionable error.
+            self.event_queue.put(("error", self.t("error_no_output")))
             return
 
-        entries = info.get("entries") if info.get("_type") == "playlist" else [info]
+        entries = info.get("entries") if (info and info.get("_type") == "playlist") else [info]
         for entry in entries or []:
             if not entry:
                 continue
@@ -438,6 +466,8 @@ class DownloaderApp(ctk.CTk):
             speed = d.get("_speed_str", "")
             eta = d.get("_eta_str", "")
             self.event_queue.put(("progress", fraction, f"{title}  {speed}  ETA {eta}".strip()))
+        elif d["status"] == "finished":
+            self.downloaded_any = True
         elif d["status"] == "error":
             self.event_queue.put(("status", self.t("status_fragment_error")))
 

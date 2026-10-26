@@ -36,12 +36,14 @@ languages via pull request are welcome (see [`translations.py`](translations.py)
 
 `ffmpeg` is required to merge separate video+audio streams and to extract MP3.
 
-- **Pre-built binary:** nothing to do — `ffmpeg` is bundled **inside** the
-  executable, so the download is fully portable and needs no installation.
+- **Pre-built binary:** `ffmpeg` is bundled **inside** the executable. On first
+  run it is unpacked once to a per-user folder (`~/.yt_downloader_gui/bin`) and
+  used from there, so no installation is needed.
 - **Running from source:** make sure `ffmpeg` is installed and on your `PATH`.
 
-You can still override the bundled copy by placing your own `ffmpeg`
-(`ffmpeg.exe` on Windows) next to the executable.
+If a download ever fails to produce a file on **Windows** (some antivirus setups
+block running the unpacked ffmpeg), just drop an `ffmpeg.exe` next to the app —
+it takes priority over the bundled copy.
 
 ## Run from source
 
