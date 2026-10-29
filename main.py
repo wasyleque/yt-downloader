@@ -121,6 +121,42 @@ def open_in_file_manager(path: str) -> None:
         subprocess.run(["xdg-open", folder], check=False)
 
 
+class DownloadJob:
+    """One download running (or finished) in its own background thread.
+
+    Each job owns its own cancel flag and the row of widgets that shows its
+    progress, so any number of jobs can run in parallel and be stopped
+    independently. UI-restorable state (``title``/``last_fraction``/
+    ``last_status``/``state``) is kept here so a language switch, which rebuilds
+    every widget, can redraw the row without disturbing the running thread.
+    """
+
+    def __init__(self, job_id, url, dest, is_audio, height, no_playlist):
+        self.id = job_id
+        self.url = url
+        self.dest = dest
+        self.is_audio = is_audio
+        self.height = height
+        self.no_playlist = no_playlist
+
+        self.cancel_requested = False
+        self.downloaded_any = False
+        self.thread = None
+
+        # Restorable display state.
+        self.title = url
+        self.last_fraction = 0.0
+        self.last_status = ""
+        self.state = "running"  # running | done | error | cancelled
+
+        # Widgets (recreated on a language switch).
+        self.frame = None
+        self.title_label = None
+        self.progress_bar = None
+        self.status_label = None
+        self.stop_button = None
+
+
 class DownloaderApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -139,9 +175,9 @@ class DownloaderApp(ctk.CTk):
         self.lang = lang if lang in available else translations.DEFAULT_LANG
 
         self.event_queue: queue.Queue = queue.Queue()
-        self.is_downloading = False
-        self.cancel_requested = False
-        self.downloaded_any = False
+        # Parallel downloads: each gets its own DownloadJob + row of widgets.
+        self.jobs: dict[int, DownloadJob] = {}
+        self._next_job_id = 1
 
         # UI state kept independent of the (translated) widget labels so it
         # survives a language switch (which rebuilds every widget).
@@ -275,19 +311,27 @@ class DownloaderApp(ctk.CTk):
             command=lambda: open_in_file_manager(self.folder_var.get()),
         ).grid(row=0, column=2, padx=(8, 0))
 
-        # Download / Stop
-        button_text = self.t("stop") if self.is_downloading else self.t("download")
-        self.download_button = ctk.CTkButton(self, text=button_text, command=self._on_button_click)
-        self.download_button.pack(pady=16)
+        # Add-download button. Unlike before it never turns into a global Stop:
+        # it always adds the pasted link as a new parallel download. Each running
+        # download has its own Stop button on its row below.
+        self.download_button = ctk.CTkButton(
+            self, text=self.t("download_add"), command=self._add_download
+        )
+        self.download_button.pack(pady=(16, 8))
 
-        # Progress
-        progress_frame = ctk.CTkFrame(self, fg_color="transparent")
-        progress_frame.pack(fill="x", padx=16)
-        self.progress_bar = ctk.CTkProgressBar(progress_frame)
-        self.progress_bar.set(0)
-        self.progress_bar.pack(fill="x")
-        self.status_label = ctk.CTkLabel(self, text=self.t("status_ready"), anchor="w")
-        self.status_label.pack(fill="x", padx=16, pady=(4, 12))
+        # Scrollable list of downloads (one row per job).
+        ctk.CTkLabel(self, text=self.t("downloads_label")).pack(anchor="w", padx=16)
+        self.jobs_frame = ctk.CTkScrollableFrame(self, fg_color=("#f2f2f2", "#1b1b1b"))
+        self.jobs_frame.pack(fill="both", expand=True, padx=16, pady=(4, 12))
+        self.empty_label = ctk.CTkLabel(
+            self.jobs_frame, text=self.t("jobs_empty"), text_color=("#888", "#777")
+        )
+
+        # Redraw any rows for downloads still around after a language switch.
+        if self.jobs:
+            for job in self.jobs.values():
+                self._add_job_row(job)
+        self._refresh_empty_label()
 
     def _build_footer(self):
         footer = ctk.CTkFrame(self, fg_color="transparent")
@@ -318,19 +362,22 @@ class DownloaderApp(ctk.CTk):
     def _on_quality_change(self, value: str):
         self.quality_height = self._q_label_to_h.get(value)
 
-    def _on_button_click(self):
-        """Handle the button depending on whether a download is running."""
-        if self.is_downloading:
-            self._stop_download()
-        else:
-            self._start_download()
+    def _stop_job(self, job: DownloadJob):
+        """Request cancellation of one running download."""
+        if job.state == "running" and not job.cancel_requested:
+            job.cancel_requested = True
+            job.last_status = self.t("status_stopping")
+            if job.status_label is not None:
+                job.status_label.configure(text=job.last_status)
+            if job.stop_button is not None:
+                job.stop_button.configure(state="disabled")
 
-    def _stop_download(self):
-        """Request cancellation of the running download."""
-        if not self.cancel_requested:
-            self.cancel_requested = True
-            self.status_label.configure(text=self.t("status_stopping"))
-            self.download_button.configure(state="disabled")
+    def _remove_job(self, job: DownloadJob):
+        """Remove a finished/stopped job's row from the list."""
+        if job.frame is not None:
+            job.frame.destroy()
+        self.jobs.pop(job.id, None)
+        self._refresh_empty_label()
 
     def _choose_folder(self):
         chosen = filedialog.askdirectory(initialdir=self.folder_var.get())
@@ -346,10 +393,8 @@ class DownloaderApp(ctk.CTk):
 
     # ---------- Download ----------
 
-    def _start_download(self):
-        if self.is_downloading:
-            return
-
+    def _add_download(self):
+        """Add the pasted link as a new download that runs in parallel."""
         url = self.url_entry.get().strip()
         if not url:
             messagebox.showwarning(self.t("warn_no_link_title"), self.t("warn_no_link_msg"))
@@ -359,32 +404,97 @@ class DownloaderApp(ctk.CTk):
         dest.mkdir(parents=True, exist_ok=True)
         self._remember_folder(str(dest))
 
-        is_audio = self.mode_is_audio
-        height = self.quality_height
-        no_playlist = self.single_video_var.get()
-
-        self.is_downloading = True
-        self.cancel_requested = False
-        self.downloaded_any = False
-
-        # Button acts as STOP while downloading
-        self.download_button.configure(text=self.t("stop"), state="normal")
-
-        self.progress_bar.set(0)
-        self.status_label.configure(text=self.t("status_starting"))
-
-        thread = threading.Thread(
-            target=self._download_worker,
-            args=(url, str(dest), is_audio, height, no_playlist),
-            daemon=True,
+        job = DownloadJob(
+            self._next_job_id,
+            url,
+            str(dest),
+            self.mode_is_audio,
+            self.quality_height,
+            self.single_video_var.get(),
         )
-        thread.start()
+        self._next_job_id += 1
+        job.last_status = self.t("status_starting")
+        self.jobs[job.id] = job
+        self._add_job_row(job)
+        self._refresh_empty_label()
 
-    def _build_ydl_opts(self, dest, is_audio, height, no_playlist, impersonate):
+        # Clear the field so the next link can be pasted right away.
+        self.url_entry.delete(0, "end")
+        self.url_value = ""
+
+        job.thread = threading.Thread(
+            target=self._download_worker, args=(job,), daemon=True
+        )
+        job.thread.start()
+
+    # ---------- Job rows ----------
+
+    def _refresh_empty_label(self):
+        """Show the hint only while there are no download rows."""
+        if not hasattr(self, "empty_label"):
+            return
+        if self.jobs:
+            self.empty_label.pack_forget()
+        else:
+            self.empty_label.pack(pady=24)
+
+    def _add_job_row(self, job: DownloadJob):
+        """Create (or recreate) the row of widgets for a job."""
+        row = ctk.CTkFrame(self.jobs_frame)
+        row.pack(fill="x", padx=4, pady=4)
+        row.columnconfigure(0, weight=1)
+        job.frame = row
+
+        job.title_label = ctk.CTkLabel(
+            row, text=job.title, anchor="w", justify="left", wraplength=560
+        )
+        job.title_label.grid(row=0, column=0, sticky="ew", padx=(10, 8), pady=(8, 0))
+
+        job.stop_button = ctk.CTkButton(row, width=72)
+        job.stop_button.grid(row=0, column=1, rowspan=2, padx=10, pady=8)
+
+        job.progress_bar = ctk.CTkProgressBar(row)
+        job.progress_bar.set(job.last_fraction)
+        job.progress_bar.grid(row=1, column=0, sticky="ew", padx=(10, 8), pady=(4, 0))
+
+        job.status_label = ctk.CTkLabel(
+            row, text=job.last_status, anchor="w", justify="left",
+            font=ctk.CTkFont(size=11), wraplength=620,
+        )
+        job.status_label.grid(row=2, column=0, columnspan=2, sticky="ew", padx=(10, 8), pady=(2, 8))
+
+        self._refresh_job_row(job)
+
+    def _refresh_job_row(self, job: DownloadJob):
+        """Update a row's button and status colour to match the job state."""
+        if job.stop_button is None:
+            return
+        if job.state == "running":
+            job.stop_button.configure(
+                text=self.t("stop"),
+                state="disabled" if job.cancel_requested else "normal",
+                command=lambda j=job: self._stop_job(j),
+            )
+            if job.status_label is not None:
+                job.status_label.configure(text_color=("gray10", "gray90"))
+        else:
+            # Terminal state: the button clears the finished row.
+            job.stop_button.configure(
+                text="✕", state="normal", command=lambda j=job: self._remove_job(j)
+            )
+            colors = {
+                "done": ("#137333", "#7ee2a8"),
+                "error": ("#c5221f", "#ff8a80"),
+                "cancelled": ("#8a6d00", "#e3c04c"),
+            }
+            if job.status_label is not None:
+                job.status_label.configure(text_color=colors.get(job.state, ("gray10", "gray90")))
+
+    def _build_ydl_opts(self, job, impersonate):
         ydl_opts = {
-            "outtmpl": os.path.join(dest, "%(title)s.%(ext)s"),
-            "noplaylist": no_playlist,
-            "progress_hooks": [self._progress_hook],
+            "outtmpl": os.path.join(job.dest, "%(title)s.%(ext)s"),
+            "noplaylist": job.no_playlist,
+            "progress_hooks": [lambda d, j=job: self._progress_hook(j, d)],
             "quiet": True,
             "no_warnings": True,
             # Keep going past a single failed item in a playlist/channel, but
@@ -408,14 +518,16 @@ class DownloaderApp(ctk.CTk):
         if ffmpeg_dir:
             ydl_opts["ffmpeg_location"] = ffmpeg_dir
 
-        if is_audio:
+        if job.is_audio:
             ydl_opts["format"] = "bestaudio/best"
             ydl_opts["postprocessors"] = [
                 {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}
             ]
         else:
-            if height:
-                ydl_opts["format"] = f"bestvideo[height<={height}]+bestaudio/best[height<={height}]"
+            if job.height:
+                ydl_opts["format"] = (
+                    f"bestvideo[height<={job.height}]+bestaudio/best[height<={job.height}]"
+                )
             else:
                 ydl_opts["format"] = "bestvideo+bestaudio/best"
             ydl_opts["merge_output_format"] = "mp4"
@@ -426,47 +538,34 @@ class DownloaderApp(ctk.CTk):
         with yt_dlp.YoutubeDL(opts) as ydl:
             return ydl.extract_info(url, download=True)
 
-    def _download_worker(self, url, dest, is_audio, height, no_playlist):
+    def _download_worker(self, job: DownloadJob):
         # Try a plain request first. Some sites sit behind Cloudflare and reject
         # it with HTTP 403 based on the TLS/HTTP fingerprint; on failure, retry
         # once with browser impersonation (curl_cffi), which gets past that.
         try:
-            info = self._extract(
-                url, self._build_ydl_opts(dest, is_audio, height, no_playlist, False)
-            )
+            self._extract(job.url, self._build_ydl_opts(job, False))
         except Exception as exc:  # noqa: BLE001
-            if self.cancel_requested:
-                self.event_queue.put(("error", str(exc)))
+            if job.cancel_requested:
+                self.event_queue.put(("error", job.id, str(exc)))
                 return
             try:
-                info = self._extract(
-                    url, self._build_ydl_opts(dest, is_audio, height, no_playlist, True)
-                )
+                self._extract(job.url, self._build_ydl_opts(job, True))
             except Exception as exc2:  # noqa: BLE001
-                self.event_queue.put(("error", str(exc2)))
+                self.event_queue.put(("error", job.id, str(exc2)))
                 return
 
-        if not self.downloaded_any and not self.cancel_requested:
+        if not job.downloaded_any and not job.cancel_requested:
             # Nothing was actually saved: e.g. a format needs merging and ffmpeg
             # could not be used, or every item in the list failed. Don't report
             # success silently — surface a clear, actionable error.
-            self.event_queue.put(("error", self.t("error_no_output")))
+            self.event_queue.put(("error", job.id, self.t("error_no_output")))
             return
 
-        entries = info.get("entries") if (info and info.get("_type") == "playlist") else [info]
-        for entry in entries or []:
-            if not entry:
-                continue
-            title = entry.get("title", self.t("unknown_title"))
-            ext = "mp3" if is_audio else (entry.get("ext") or "mp4")
-            path = os.path.join(dest, f"{title}.{ext}")
-            self.event_queue.put(("done_item", title, path))
+        self.event_queue.put(("finished", job.id))
 
-        self.event_queue.put(("finished", None))
-
-    def _progress_hook(self, d: dict):
-        if self.cancel_requested:
-            # user requested cancellation
+    def _progress_hook(self, job: DownloadJob, d: dict):
+        if job.cancel_requested:
+            # user requested cancellation of this job
             raise yt_dlp.utils.DownloadError(self.t("cancelled_exception"))
 
         if d["status"] == "downloading":
@@ -476,48 +575,55 @@ class DownloaderApp(ctk.CTk):
             title = (d.get("info_dict") or {}).get("title", "")
             speed = d.get("_speed_str", "")
             eta = d.get("_eta_str", "")
-            self.event_queue.put(("progress", fraction, f"{title}  {speed}  ETA {eta}".strip()))
+            status = f"{speed}  ETA {eta}".strip()
+            self.event_queue.put(("progress", job.id, fraction, status, title))
         elif d["status"] == "finished":
-            self.downloaded_any = True
+            job.downloaded_any = True
         elif d["status"] == "error":
-            self.event_queue.put(("status", self.t("status_fragment_error")))
+            self.event_queue.put(("status", job.id, self.t("status_fragment_error")))
 
     def _poll_queue(self):
         try:
             while True:
                 event = self.event_queue.get_nowait()
                 kind = event[0]
+                job = self.jobs.get(event[1])
+                # Row may have been removed, or widgets not yet (re)built.
+                if job is None or job.frame is None:
+                    continue
 
                 if kind == "progress":
-                    _, fraction, text = event
-                    self.progress_bar.set(min(max(fraction, 0), 1))
-                    self.status_label.configure(text=text)
+                    _, _, fraction, status, title = event
+                    job.last_fraction = min(max(fraction, 0), 1)
+                    job.last_status = status
+                    job.progress_bar.set(job.last_fraction)
+                    job.status_label.configure(text=status)
+                    if title and title != job.title:
+                        job.title = title
+                        job.title_label.configure(text=title)
 
                 elif kind == "status":
-                    self.status_label.configure(text=event[1])
-
-                elif kind == "done_item":
-                    _, title, _path = event
-                    self.status_label.configure(text=f"✓ {title}")
+                    job.last_status = event[2]
+                    job.status_label.configure(text=event[2])
 
                 elif kind == "finished":
-                    self.progress_bar.set(1)
-                    self.status_label.configure(text=self.t("status_done"))
-                    self.is_downloading = False
-                    self.cancel_requested = False
-                    self.download_button.configure(state="normal", text=self.t("download"))
+                    job.state = "done"
+                    job.last_fraction = 1
+                    job.last_status = self.t("status_done")
+                    job.progress_bar.set(1)
+                    job.status_label.configure(text=job.last_status)
+                    self._refresh_job_row(job)
 
                 elif kind == "error":
-                    self.progress_bar.set(0)
-                    self.is_downloading = False
-                    self.download_button.configure(state="normal", text=self.t("download"))
-
-                    if self.cancel_requested:
-                        self.status_label.configure(text=self.t("status_cancelled"))
-                        self.cancel_requested = False
+                    if job.cancel_requested:
+                        job.state = "cancelled"
+                        job.last_status = self.t("status_cancelled")
                     else:
-                        self.status_label.configure(text=self.t("status_error"))
-                        messagebox.showerror(self.t("error_download_title"), event[1])
+                        job.state = "error"
+                        job.last_status = f"✗ {event[2]}"
+                    job.progress_bar.set(0)
+                    job.status_label.configure(text=job.last_status)
+                    self._refresh_job_row(job)
 
         except queue.Empty:
             pass

@@ -12,13 +12,17 @@ built on [yt-dlp](https://github.com/yt-dlp/yt-dlp) with a clean
 - Paste a **single video** link, or a **playlist / channel** link to download
   the whole list — works with any of the
   [sites yt-dlp supports](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md)
+- **Parallel downloads** — paste a link and hit *Add download*, then paste the
+  next one; each link downloads at the same time as its own row in the list,
+  with its own progress bar and its own **Stop** button
 - **Video** or **audio-only (MP3)** mode
 - Quality selector: 4K / 1440p / 1080p / 720p / 480p / 360p / best available
 - "This video only" option to ignore a playlist/channel embedded in the link
 - Choose the destination folder, with a one-click "Show in folder" button
-- Live progress bar with speed and ETA; downloads run on a background thread so the
-  UI never freezes
-- **Stop** button to cancel an in-progress download
+- Live per-download progress with speed and ETA; everything runs on background
+  threads so the UI never freezes
+- Per-download **Stop** button to cancel just that download, and a ✕ to clear a
+  finished row
 - When grabbing a whole list, a single broken/blocked item is skipped instead of
   aborting the batch
 - **Multi-language UI** with an in-app language switcher — your choice is remembered

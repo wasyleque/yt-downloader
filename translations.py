@@ -58,6 +58,10 @@ TRANSLATIONS = {
             "Windows) ffmpeg could not be used — try placing ffmpeg.exe in the "
             "same folder as the app."
         ),
+        "download_add": "Add download",
+        "downloads_label": "Downloads:",
+        "jobs_empty": "Paste a link above and click “Add download”. Each link downloads in parallel.",
+        "status_queued": "Queued...",
     },
     "pl": {
         "url_label": "Link do filmu lub playlisty:",
@@ -92,6 +96,10 @@ TRANSLATIONS = {
             "Windows) nie udało się użyć ffmpeg — spróbuj umieścić ffmpeg.exe w "
             "tym samym folderze co aplikacja."
         ),
+        "download_add": "Dodaj pobieranie",
+        "downloads_label": "Pobierania:",
+        "jobs_empty": "Wklej link powyżej i kliknij „Dodaj pobieranie”. Każdy link pobiera się równolegle.",
+        "status_queued": "W kolejce...",
     },
     "de": {
         "url_label": "Video- oder Playlist-URL:",
